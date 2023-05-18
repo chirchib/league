@@ -1,12 +1,12 @@
 package services
 
-import "league/internal/repository"
+import "league/internal/repositories"
 
 type Services struct {
-	Repos *repository.Repository
+	Repos *repositories.Repository
 }
 
-func New(repos *repository.Repository) *Services {
+func New(repos *repositories.Repository) *Services {
 	return &Services{
 		Repos: repos,
 	}

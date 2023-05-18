@@ -13,7 +13,7 @@ import (
 )
 
 func main() {
-	envFile := flag.String("env", "", "env for use")
+	envFile := flag.String("env", "./deployments/envs/local.env", "env for use")
 	flag.Parse()
 
 	if *envFile != "" {

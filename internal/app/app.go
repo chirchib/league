@@ -2,11 +2,14 @@ package app
 
 import (
 	"fmt"
-	"time"
-	
+	"github.com/gin-gonic/gin"
 	"league/configs"
+	"league/internal/router"
 	"league/pkg/logger"
 	"league/pkg/postgres"
+	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/caarlos0/env/v6"
 	"github.com/jmoiron/sqlx"
@@ -15,14 +18,14 @@ import (
 )
 
 type App struct {
-	Logger *zap.SugaredLogger
-	DB     *sqlx.DB
-	Config *configs.Config
+	logger *zap.SugaredLogger
+	db     *sqlx.DB
+	config *configs.Config
 }
 
 func NewApp(config *configs.Config) *App {
 	return &App{
-		Config: config,
+		config: config,
 	}
 }
 
@@ -41,30 +44,35 @@ func (a *App) Start() (*App, error) {
 		return a, fmt.Errorf("can't connect to db: %s", err)
 	}
 
+	if err = a.InitRouter(); err != nil {
+		return a, fmt.Errorf("can't init router: %s", err)
+	}
+
+	a.gracefulDown()
+
 	return a, nil
+}
+
+func (a *App) ParseENV() error {
+	if err := env.Parse(a.config); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (a *App) InitLogger() error {
 	var err error
 
 	loggerConfig := logger.LoggerConfig{
-		Level: zapcore.Level(a.Config.LOGLEVEL),
+		Level: zapcore.Level(a.config.Log.Level),
 	}
 
-	if a.Logger, err = logger.NewLogger(&loggerConfig); err != nil {
+	if a.logger, err = logger.NewLogger(&loggerConfig); err != nil {
 		return err
 	}
 
-	defer a.Logger.Sync()
-
-	return nil
-}
-
-func (a *App) ParseENV() error {
-	err := env.Parse(a.Config)
-	if err != nil {
-		return err
-	}
+	defer a.logger.Sync()
 
 	return nil
 }
@@ -72,33 +80,49 @@ func (a *App) ParseENV() error {
 func (a *App) InitDB() error {
 	var (
 		dbConfig = &postgres.DBConfig{
-			DBUser:          a.Config.DBUser,
-			DBPassword:      a.Config.DBPassword,
-			DBHost:          a.Config.DBHost,
-			DBPort:          a.Config.DBPort,
-			DBName:          a.Config.DBName,
-			DBSchema:        a.Config.DBSchema,
-			DBSSLMode:       a.Config.DBSSLMode,
-			MaxIdleConns:    a.Config.DBMaxIdleConns,
-			MaxOpenConns:    a.Config.DBMaxOpenConns,
-			ConnMaxLifetime: a.Config.DBConnMaxLifetime,
-			ApplicationName: a.Config.DBApplicationName,
+			DBUser:          a.config.DB.User,
+			DBPassword:      a.config.DB.Password,
+			DBHost:          a.config.DB.Host,
+			DBPort:          a.config.DB.Port,
+			DBName:          a.config.DB.Name,
+			DBSchema:        a.config.DB.Schema,
+			DBSSLMode:       a.config.DB.SSLMode,
+			MaxIdleConns:    a.config.DB.MaxIdleConns,
+			MaxOpenConns:    a.config.DB.MaxOpenConns,
+			ConnMaxLifetime: a.config.DB.ConnMaxLifetime,
 		}
 		err error
 	)
 
-	a.Logger.Named("DB").Infof(
-		"MaxOpenConns: %d; MaxIdleConns: %d; ConnMaxLifetime: %d seconds",
-		a.Config.DBMaxOpenConns,
-		a.Config.DBMaxIdleConns,
-		a.Config.DBConnMaxLifetime,
-	)
-
-	if a.DB, err = postgres.NewDB(dbConfig).Connect(); err != nil {
+	if a.db, err = postgres.NewDB(dbConfig).Connect(); err != nil {
 		return err
 	}
 
-	a.DB.SetConnMaxIdleTime(60 * time.Second)
+	return nil
+}
+
+func (a *App) InitRouter() error {
+	var (
+		g   *gin.Engine
+		err error
+	)
+
+	g, err = router.Router(a.db, a.logger, a.config)
+	if err != nil {
+		return err
+	}
+
+	if err = g.Run(fmt.Sprint(":", a.config.HTTP.Port)); err != nil {
+		return err
+	}
 
 	return nil
+}
+
+func (a *App) gracefulDown() {
+	interrupt := make(chan os.Signal, 1)
+
+	signal.Notify(interrupt, os.Interrupt, syscall.SIGTERM, syscall.SIGINT, syscall.SIGABRT)
+
+	<-interrupt
 }

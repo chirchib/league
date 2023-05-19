@@ -6,6 +6,10 @@ import (
 	playersHandler "league/internal/handlers/players"
 	seasonsHandler "league/internal/handlers/seasons"
 	tablesHandler "league/internal/handlers/tables"
+	clubsService "league/internal/services/clubs"
+	playersService "league/internal/services/players"
+	seasonssService "league/internal/services/seasons"
+	tablesService "league/internal/services/tables"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jmoiron/sqlx"
@@ -20,6 +24,10 @@ func Router(db *sqlx.DB, logger *zap.SugaredLogger, config *configs.Config) (*gi
 	// init repositories
 
 	// init services
+	clubsService := clubsService.New(logger)
+	playersService := playersService.New(logger)
+	seasonsService := seasonssService.New(logger)
+	tablesService := tablesService.New(logger)
 
 	// init handlers
 	clubsHandler := clubsHandler.New(logger)
